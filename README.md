@@ -11,10 +11,9 @@ Proyecto académico para el desafío de Métodos Numéricos (UMSA). Simula la as
 1. Descomprime o abre la carpeta `finanzas-gcp-completo` en VS Code.
 2. Abre `index.html`.
 3. Haz clic derecho y selecciona **Open with Live Server**.
-4. Completa los datos académicos.
-5. Selecciona un escenario y pulsa **Validar y calcular**. Los cambios en A, b, x0, tolerancia o precondicionador recalculan los resultados.
-6. Ejecuta **Pruebas QA** y revisa que los cuatro casos estén aprobados.
-7. Revisa el gráfico cartesiano: eje X = áreas x₁–x₄; eje Y = asignación en miles de Bs; cada línea representa la solución de Gauss de uno de los escenarios.
+4. Selecciona un escenario y pulsa **Validar y calcular**. Los cambios en A, b, x0, tolerancia o precondicionador recalculan los resultados.
+5. Ejecuta **Pruebas QA** y revisa que los cuatro casos estén aprobados.
+6. Revisa el gráfico cartesiano: eje X = áreas x₁–x₄; eje Y = asignación en miles de Bs; cada línea representa la solución de Gauss de uno de los escenarios.
 
 No abras `index.html` directamente mediante `file://`, porque los navegadores pueden bloquear la carga de módulos ES.
 
@@ -46,7 +45,7 @@ Los coeficientes son hipotéticos y se generan para el ejercicio; no proceden de
 - Saad, Y. (2003). *Iterative Methods for Sparse Linear Systems* (2.ª ed.). SIAM.
 
 ## Publicación
-Para cumplir el entregable, publica esta carpeta en un repositorio público de GitHub/GitLab y despliega `index.html` con GitHub Pages u otro hosting estático. Los campos académicos deben completarse antes de publicar. La publicación pública no se realiza automáticamente desde VS Code.
+El proyecto se encuentra publicado en un repositorio público de GitHub y desplegado mediante GitHub Pages.
 
 ## Ejemplo predeterminado y resultados de referencia
 
