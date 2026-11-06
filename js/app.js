@@ -1,1441 +1,649 @@
-import {
-  VARIABLES,
-  ESCENARIOS,
-  copiarMatriz,
-  copiarVector
-} from "./datos.js";
 
-import { resolverSistemaDirecto } from "./metodosDirectos.js";
+import{VARIABLES,ESCENARIOS,copiarMatriz,copiarVector}from"./datos.js";
+import{resolverSistemaDirecto}from"./metodosDirectos.js";
+import{gradientesConjugados,gradientesConjugadosPrecondicionado}from"./gradientesConjugados.js";
+import{validarModelo,calcularErrores,calcularResiduoRelativo,numeroCondicion2,matrizEquivalenteJacobi,menoresPrincipales}from"./analisis.js";
+import{ejecutarPruebasQA}from"./qa.js";
 
-import {
-  gradientesConjugados,
-  gradientesConjugadosPrecondicionado
-} from "./gradientesConjugados.js";
+let actual="ideal",A=[],b=[],x0=[0,0,0,0],ultimaComparacion=[];
+const $=id=>document.getElementById(id);
+const fmt=(v,d=7)=>Number.isFinite(v)?v.toLocaleString("es-BO",{maximumFractionDigits:d}):"No definido";
+const exp=v=>Number.isFinite(v)?v.toExponential(3):"No definido";
+const prettyVector=v=>"["+v.map(n=>fmt(n,5)).join(", ")+"]";
 
-import {
-  validarModelo,
-  calcularErrores,
-  calcularResiduoRelativo,
-  numeroCondicion2,
-  matrizEquivalenteJacobi
-} from "./analisis.js";
-
-import { ejecutarPruebasQA } from "./qa.js";
-
-let actual = "ideal";
-let A = [];
-let b = [];
-let x0 = [0, 0, 0, 0];
-let ultimaComparacion = [];
-
-const $ = id => document.getElementById(id);
-
-const fmt = (valor, decimales = 6) =>
-  Number.isFinite(valor)
-    ? valor.toLocaleString("es-BO", {
-        maximumFractionDigits: decimales
-      })
-    : "No definido";
-
-const exp = valor =>
-  Number.isFinite(valor)
-    ? valor.toExponential(3)
-    : "No definido";
-
-const prettyVector = vector =>
-  "[" + vector.map(valor => fmt(valor, 5)).join("; ") + "]";
-
-const productoPunto = (a, b) =>
-  a.reduce((suma, valor, i) => suma + valor * b[i], 0);
-
-const multiplicarMatrizVector = (matriz, vector) =>
-  matriz.map(fila =>
-    fila.reduce((suma, valor, j) => suma + valor * vector[j], 0)
-  );
-
-const norma = vector =>
-  Math.sqrt(productoPunto(vector, vector));
-
-function escaparHTML(texto) {
-  return String(texto)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+function leerX0(){
+ return Array.from(document.querySelectorAll("#x0Editor input"),el=>el.value.trim()===""?NaN:Number(el.value));
 }
 
-/* =========================================================
-   ESCENARIOS Y EDITORES
-========================================================= */
+function cargar(id){
+ actual=id;
+ const e=ESCENARIOS[id];
+ A=copiarMatriz(e.A);
+ b=copiarVector(e.b);
+ x0=[0,0,0,0];
+ $("scenarioTitle").textContent=e.nombre;
+ $("scenarioDescription").textContent=e.descripcion;
+ dibujarTarjetas();
+ dibujarEditores();
+ limpiarResultados();
+ $("validationMessage").className="message";
+ $("validationMessage").textContent="Escenario cargado. Pulsa Validar y calcular.";
+}
 
-function cargar(id) {
-  actual = id;
+function dibujarTarjetas(){
+ const cont=$("scenarioGrid");
+ cont.innerHTML="";
+ Object.values(ESCENARIOS).forEach(e=>{
+  const bt=document.createElement("button");
+  bt.className="scenario-card "+(e.id===actual?"active":"");
+  bt.type="button";
+  bt.setAttribute("aria-pressed",String(e.id===actual));
+  const small=document.createElement("small");
+  small.textContent=e.numero;
+  const h=document.createElement("h3");
+  h.textContent=e.nombre;
+  const p=document.createElement("p");
+  p.textContent=e.descripcion;
+  const detail=document.createElement("small");
+  detail.textContent=e.detalle;
+  bt.append(small,h,p,detail);
+  bt.onclick=()=>cargar(e.id);
+  cont.appendChild(bt);
+ });
+}
 
-  const escenario = ESCENARIOS[id];
+function dibujarEditores(){
+ const me=$("matrixEditor");
+ me.innerHTML="";
+ A.forEach((f,i)=>f.forEach((v,j)=>{
+  const inp=document.createElement("input");
+  inp.type="number";
+  inp.step="any";
+  inp.value=v;
+  inp.title=`A[${i+1},${j+1}]`;
+  inp.setAttribute("aria-label",`A fila ${i+1}, columna ${j+1}`);
+  inp.onchange=()=>{
+   A[i][j]=inp.value.trim()===""?NaN:Number(inp.value);
+   pendiente();
+   calcular();
+  };
+  me.appendChild(inp);
+ }));
 
-  A = copiarMatriz(escenario.A);
-  b = copiarVector(escenario.b);
-  x0 = [0, 0, 0, 0];
+ const ve=$("vectorEditor");
+ ve.innerHTML="";
+ b.forEach((v,i)=>{
+  const row=document.createElement("div");
+  row.className="vector-row";
+  const label=document.createElement("label");
+  label.className="vector-label";
+  label.style.color=`var(--${VARIABLES[i].color})`;
+  label.textContent=VARIABLES[i].id;
+  label.htmlFor=`b${i}`;
+  const inp=document.createElement("input");
+  inp.id=`b${i}`;
+  inp.type="number";
+  inp.step="any";
+  inp.value=v;
+  inp.setAttribute("aria-label",VARIABLES[i].nombre);
+  inp.onchange=()=>{
+   b[i]=inp.value.trim()===""?NaN:Number(inp.value);
+   pendiente();
+   calcular();
+  };
+  row.append(label,inp);
+  ve.appendChild(row);
+ });
 
-  $("scenarioTitle").textContent = escenario.nombre;
-  $("scenarioDescription").textContent = escenario.descripcion;
+ const xe=$("x0Editor");
+ xe.innerHTML="";
+ x0.forEach((v,i)=>{
+  const row=document.createElement("div");
+  row.className="vector-row";
+  const label=document.createElement("label");
+  label.className="vector-label";
+  label.textContent=`x${i+1}⁰`;
+  label.htmlFor=`x0${i}`;
+  const inp=document.createElement("input");
+  inp.id=`x0${i}`;
+  inp.type="number";
+  inp.step="any";
+  inp.value=v;
+  inp.setAttribute("aria-label",`Componente ${i+1} del vector inicial`);
+  inp.onchange=()=>{
+   x0=leerX0();
+   pendiente();
+   calcular();
+  };
+  row.append(label,inp);
+  xe.appendChild(row);
+ });
+}
 
-  dibujarTarjetas();
-  dibujarEditores();
+function pendiente(){
+ $("validationMessage").className="message";
+ $("validationMessage").textContent="Datos modificados: la página recalcula los resultados automáticamente.";
+}
+
+function limpiarResultados(){
+ document.querySelectorAll(".engineering-conclusion").forEach(el=>{
+  if(!el.closest(".panel.results")?.querySelector(".eyebrow")?.textContent.includes("05 / CONCLUSIONES")){
+   el.remove();
+  }
+ });
+
+ ["conditionA","conditionPre","iterationsGC","iterationsPCG"].forEach(id=>$(id).textContent="—");
+ $("solutionTable").innerHTML='<tr><td colspan="8">Ejecuta el cálculo para ver resultados.</td></tr>';
+ $("diagnostics").textContent="Los diagnósticos aparecerán después del cálculo.";
+ $("symmetryProof").textContent="Ejecuta el cálculo para ver la comprobación.";
+ $("minorProof").innerHTML="";
+ $("comparisonTable").innerHTML='<tr><td colspan="4">Ejecuta el cálculo para comparar escenarios.</td></tr>';
+ $("conditionChart").innerHTML="";
+ $("interpretation").innerHTML="<p>Los resultados e interpretaciones aparecerán después del cálculo.</p>";
+ ultimaComparacion=[];
+}
+
+function diag(label,value){
+ const d=document.createElement("div");
+ d.className="diagnostic";
+ const s=document.createElement("span");
+ const v=document.createElement("strong");
+ s.textContent=label;
+ v.textContent=value;
+ d.append(s,v);
+ return d;
+}
+
+/* BLOQUE NUEVO: conclusiones de Ingeniería de Sistemas */
+
+function conclusionIngenieria(contenedor,texto){
+ if(!contenedor)return;
+
+ const anterior=contenedor.querySelector(":scope > .engineering-conclusion");
+ if(anterior)anterior.remove();
+
+ const bloque=document.createElement("div");
+ bloque.className="engineering-conclusion";
+ bloque.style.cssText="margin-top:14px;padding:13px 15px;border-left:3px solid #78aaff;border-radius:8px;background:#14213a;color:#dce8fb;font-size:12px;line-height:1.6";
+
+ const titulo=document.createElement("strong");
+ titulo.textContent="Aplicación a la mención de Ingeniería de Sistemas";
+ titulo.style.cssText="display:block;color:#9fc2ff;margin-bottom:5px;font-size:12px";
+
+ const parrafo=document.createElement("p");
+ parrafo.textContent=texto;
+ parrafo.style.margin="0";
+
+ bloque.append(titulo,parrafo);
+ contenedor.appendChild(bloque);
+}
+
+function agregarConclusionFinal(){
+ const secciones=Array.from(document.querySelectorAll(".panel.results"));
+
+ const seccion=secciones.find(el=>
+  el.querySelector(".eyebrow")?.textContent.includes("05 / CONCLUSIONES")
+ );
+
+ if(!seccion)return;
+
+ const prose=seccion.querySelector(".prose");
+
+ conclusionIngenieria(
+  prose,
+  "Desde la mención de Ingeniería de Sistemas, este simulador demuestra cómo el modelado matemático y los métodos numéricos apoyan la planificación y optimización de recursos tecnológicos. La comparación entre Gauss, GC y GCP permite evaluar la precisión, convergencia y eficiencia de distintas alternativas antes de tomar decisiones sobre infraestructura, desarrollo de software, seguridad informática y mantenimiento. En un entorno real, este análisis debería complementarse con datos institucionales, restricciones presupuestarias y criterios operativos."
+ );
+}
+
+/* FIN DEL BLOQUE NUEVO */
+
+function ejecutar(Ax,bx,opciones){
+ const valid=validarModelo(Ax,bx);
+ if(!valid.valido)throw Error(valid.mensaje);
+
+ const ref=resolverSistemaDirecto(Ax,bx);
+ const gc=gradientesConjugados(Ax,bx,opciones);
+ const gcp=gradientesConjugadosPrecondicionado(Ax,bx,opciones);
+ const condA=numeroCondicion2(Ax);
+ const Ae=opciones.precondicionador==="jacobi"?matrizEquivalenteJacobi(Ax):Ax;
+ const condPre=numeroCondicion2(Ae);
+
+ return{
+  ref,gc,gcp,valid,condA,condPre,Ae,
+  err:calcularErrores(ref,gcp.x),
+  resGC:calcularResiduoRelativo(Ax,bx,gc.x),
+  resGCP:calcularResiduoRelativo(Ax,bx,gcp.x)
+ };
+}
+
+function calcular(){
+ const tol=Number($("tolerance").value);
+ const max=Number($("maxIterations").value);
+ x0=leerX0();
+
+ if(!(tol>0)||!Number.isFinite(tol)){
+  $("validationMessage").className="message error";
+  $("validationMessage").textContent="La tolerancia debe ser positiva y finita.";
+  return;
+ }
+
+ if(!(max>=1)||!Number.isInteger(max)){
+  $("validationMessage").className="message error";
+  $("validationMessage").textContent="El máximo de iteraciones debe ser un entero positivo.";
+  return;
+ }
+
+ if(x0.length!==A.length||x0.some(v=>!Number.isFinite(v))){
+  $("validationMessage").className="message error";
+  $("validationMessage").textContent="Completa las cuatro componentes numéricas de x₀.";
+  return;
+ }
+
+ const valid=validarModelo(A,b);
+
+ if(!valid.valido){
+  $("validationMessage").className="message error";
+  $("validationMessage").textContent=valid.mensaje;
   limpiarResultados();
+  return;
+ }
 
-  $("validationMessage").className = "message";
-  $("validationMessage").textContent =
-    "Escenario cargado. Pulsa «Calcular resultados» para comenzar.";
-}
+ try{
+  const opciones={
+   tolerancia:tol,
+   maxIteraciones:max,
+   x0,
+   precondicionador:$("preconditioner").value
+  };
 
-function dibujarTarjetas() {
-  const contenedor = $("scenarioGrid");
-  contenedor.innerHTML = "";
+  const r=ejecutar(A,b,opciones);
 
-  Object.values(ESCENARIOS).forEach(escenario => {
-    const boton = document.createElement("button");
+  $("conditionA").textContent=fmt(r.condA,5);
+  $("conditionPre").textContent=fmt(r.condPre,5);
+  $("iterationsGC").textContent=r.gc.iteraciones;
+  $("iterationsPCG").textContent=r.gcp.iteraciones;
 
-    boton.type = "button";
-    boton.className =
-      "scenario-card " +
-      (escenario.id === actual ? "active" : "");
+  /* SOLUCIÓN Y ERRORES */
 
-    boton.setAttribute(
-      "aria-pressed",
-      String(escenario.id === actual)
-    );
+  const tb=$("solutionTable");
+  tb.innerHTML="";
 
-    const numero = document.createElement("small");
-    numero.textContent = escenario.numero;
+  VARIABLES.forEach((v,i)=>{
+   const tr=document.createElement("tr");
+   const er=r.err[i];
 
-    const titulo = document.createElement("h3");
-    titulo.textContent = escenario.nombre;
+   const vals=[
+    v.id,
+    v.nombre,
+    fmt(r.ref[i]),
+    fmt(r.gc.x[i]),
+    fmt(r.gcp.x[i]),
+    fmt(er.absoluto,7),
+    er.relativo===null?"No definido":fmt(er.relativo,8),
+    er.porcentual===null?"No definido":fmt(er.porcentual,6)+" %"
+   ];
 
-    const descripcion = document.createElement("p");
-    descripcion.textContent = escenario.descripcion;
+   vals.forEach((value,j)=>{
+    const td=document.createElement("td");
+    td.textContent=value;
+    if(j<2)td.style.textAlign="left";
+    tr.appendChild(td);
+   });
 
-    const detalle = document.createElement("small");
-    detalle.textContent = escenario.detalle;
-
-    boton.append(numero, titulo, descripcion, detalle);
-    boton.onclick = () => cargar(escenario.id);
-
-    contenedor.appendChild(boton);
+   tb.appendChild(tr);
   });
-}
 
-function leerX0() {
-  return Array.from(
-    document.querySelectorAll("#x0Editor input"),
-    entrada =>
-      entrada.value.trim() === ""
-        ? NaN
-        : Number(entrada.value)
+  conclusionIngenieria(
+   $("solutionTable").parentElement.parentElement,
+   "La distribución calculada permite comparar cuánto recurso se asigna a infraestructura, desarrollo, seguridad y mantenimiento. Para Ingeniería de Sistemas, esta información sirve como apoyo para priorizar inversiones tecnológicas y comprobar que las decisiones presupuestarias sean coherentes con las necesidades del sistema."
   );
-}
 
-function dibujarEditores() {
-  const editorMatriz = $("matrixEditor");
-  editorMatriz.innerHTML = "";
+  /* DIAGNÓSTICO MATEMÁTICO */
 
-  A.forEach((fila, i) => {
-    fila.forEach((valor, j) => {
-      const entrada = document.createElement("input");
-
-      entrada.type = "number";
-      entrada.step = "any";
-      entrada.value = valor;
-      entrada.title = `A[${i + 1},${j + 1}]`;
-
-      entrada.setAttribute(
-        "aria-label",
-        `Matriz A, fila ${i + 1}, columna ${j + 1}`
-      );
-
-      entrada.addEventListener("change", () => {
-        A[i][j] =
-          entrada.value.trim() === ""
-            ? NaN
-            : Number(entrada.value);
-
-        pendiente();
-        calcular();
-      });
-
-      editorMatriz.appendChild(entrada);
-    });
-  });
-
-  const editorVector = $("vectorEditor");
-  editorVector.innerHTML = "";
-
-  b.forEach((valor, i) => {
-    const fila = document.createElement("div");
-    fila.className = "vector-row";
-
-    const etiqueta = document.createElement("label");
-    etiqueta.className = "vector-label";
-    etiqueta.textContent = VARIABLES[i].id;
-    etiqueta.htmlFor = `b${i}`;
-
-    const entrada = document.createElement("input");
-    entrada.id = `b${i}`;
-    entrada.type = "number";
-    entrada.step = "any";
-    entrada.value = valor;
-
-    entrada.setAttribute(
-      "aria-label",
-      VARIABLES[i].nombre
-    );
-
-    entrada.addEventListener("change", () => {
-      b[i] =
-        entrada.value.trim() === ""
-          ? NaN
-          : Number(entrada.value);
-
-      pendiente();
-      calcular();
-    });
-
-    fila.append(etiqueta, entrada);
-    editorVector.appendChild(fila);
-  });
-
-  const editorInicial = $("x0Editor");
-  editorInicial.innerHTML = "";
-
-  x0.forEach((valor, i) => {
-    const fila = document.createElement("div");
-    fila.className = "vector-row";
-
-    const etiqueta = document.createElement("label");
-    etiqueta.className = "vector-label";
-    etiqueta.textContent = `x${i + 1}⁰`;
-    etiqueta.htmlFor = `x0${i}`;
-
-    const entrada = document.createElement("input");
-    entrada.id = `x0${i}`;
-    entrada.type = "number";
-    entrada.step = "any";
-    entrada.value = valor;
-
-    entrada.setAttribute(
-      "aria-label",
-      `Componente ${i + 1} del vector inicial`
-    );
-
-    entrada.addEventListener("change", () => {
-      x0 = leerX0();
-      pendiente();
-      calcular();
-    });
-
-    fila.append(etiqueta, entrada);
-    editorInicial.appendChild(fila);
-  });
-}
-
-function pendiente() {
-  $("validationMessage").className = "message";
-  $("validationMessage").textContent =
-    "Se modificaron los datos. Recalculando resultados...";
-}
-
-/* =========================================================
-   LIMPIEZA DE RESULTADOS
-========================================================= */
-
-function limpiarResultados() {
-  [
-    "conditionA",
-    "conditionPre",
-    "iterationsGC",
-    "iterationsPCG"
-  ].forEach(id => {
-    $(id).textContent = "—";
-  });
-
-  $("solutionTable").innerHTML =
-    '<tr><td colspan="8">Ejecuta el cálculo para ver resultados.</td></tr>';
-
-  $("diagnostics").textContent =
-    "Los diagnósticos aparecerán después del cálculo.";
-
-  $("symmetryProof").textContent =
-    "Ejecuta el cálculo para ver la comprobación.";
-
-  $("minorProof").innerHTML = "";
-
-  $("comparisonTable").innerHTML =
-    '<tr><td colspan="4">Ejecuta el cálculo para comparar escenarios.</td></tr>';
-
-  $("conditionChart").innerHTML =
-    '<p class="muted">El gráfico aparecerá después del cálculo.</p>';
-
-  $("allocationChart").innerHTML =
-    '<p class="muted">El gráfico aparecerá después del cálculo.</p>';
-
-  $("interpretation").innerHTML =
-    "<p>La interpretación aparecerá después del cálculo.</p>";
-
-  $("procedureContent").innerHTML =
-    "<p>Ejecuta un cálculo válido para generar el procedimiento.</p>";
-
-  $("scenarioConclusions").innerHTML = "";
-
-  ultimaComparacion = [];
+  const de=$("diagnostics");
+  de.innerHTML="";
 
   [
-    ["solutionConclusion", "Conclusión de la solución"],
-    ["diagnosticsConclusion", "Conclusión del diagnóstico"],
-    ["allocationConclusion", "Conclusión del gráfico"],
-    ["conditionConclusion", "Conclusión del condicionamiento"],
-    ["comparisonConclusion", "Conclusión comparativa"]
-  ].forEach(([id, titulo]) => {
-    $(id).innerHTML =
-      `<h3>${titulo}</h3>` +
-      "<p>La conclusión aparecerá después del cálculo.</p>";
-  });
-}
+   ["Convergencia GC",r.gc.convergio?"Sí":"No alcanzó tolerancia"],
+   ["Convergencia GCP",r.gcp.convergio?"Sí":"No alcanzó tolerancia"],
+   ["Residuo relativo GC",exp(r.resGC)],
+   ["Residuo relativo GCP",exp(r.resGCP)],
+   ["Número de condición κ₂(A)",fmt(r.condA,8)],
+   ["Número de condición precondicionada",fmt(r.condPre,8)],
+   ["Precondicionador",opciones.precondicionador==="jacobi"?"Jacobi diagonal":"Identidad (sin precondicionamiento)"],
+   ["Vector inicial x₀",prettyVector(x0)],
+   ["Criterio de parada",`||b − Ax||₂ / ||b||₂ < ${tol.toExponential(1)}`],
+   ["Máximo de iteraciones",max]
+  ].forEach(([k,v])=>de.appendChild(diag(k,v)));
 
-/* =========================================================
-   MÉTODOS NUMÉRICOS
-========================================================= */
-
-function ejecutar(matriz, vector, opciones) {
-  const validacion = validarModelo(matriz, vector);
-
-  if (!validacion.valido) {
-    throw Error(validacion.mensaje);
-  }
-
-  const referencia = resolverSistemaDirecto(matriz, vector);
-
-  const gc = gradientesConjugados(
-    matriz,
-    vector,
-    opciones
+  conclusionIngenieria(
+   de.parentElement,
+   "El diagnóstico permite verificar si los métodos alcanzan la tolerancia y si la matriz presenta condiciones adecuadas. En Ingeniería de Sistemas, estas verificaciones son importantes para confiar en los cálculos que respaldan la planificación de recursos y detectar posibles problemas numéricos antes de utilizar los resultados."
   );
 
-  const gcp = gradientesConjugadosPrecondicionado(
-    matriz,
-    vector,
-    opciones
-  );
+  /* SIMETRÍA Y CRITERIO DE SYLVESTER */
 
-  const condicionA = numeroCondicion2(matriz);
+  $("symmetryProof").textContent="Simetría: A = Aᵀ verificada. Criterio de Sylvester: todos los menores principales son positivos.";
 
-  const equivalente =
-    opciones.precondicionador === "jacobi"
-      ? matrizEquivalenteJacobi(matriz)
-      : matriz;
+  const mp=$("minorProof");
+  mp.innerHTML="";
 
-  const condicionPre = numeroCondicion2(equivalente);
-
-  return {
-    ref: referencia,
-    gc,
-    gcp,
-    valid: validacion,
-    condA: condicionA,
-    condPre: condicionPre,
-    equivalente,
-    errores: calcularErrores(referencia, gcp.x),
-    residuoGC: calcularResiduoRelativo(
-      matriz,
-      vector,
-      gc.x
-    ),
-    residuoGCP: calcularResiduoRelativo(
-      matriz,
-      vector,
-      gcp.x
-    )
-  };
-}
-
-function diagnostico(etiqueta, valor) {
-  const contenedor = document.createElement("div");
-  contenedor.className = "diagnostic";
-
-  const nombre = document.createElement("span");
-  nombre.textContent = etiqueta;
-
-  const resultado = document.createElement("strong");
-  resultado.textContent = valor;
-
-  contenedor.append(nombre, resultado);
-
-  return contenedor;
-}
-
-/* =========================================================
-   CÁLCULO PRINCIPAL
-========================================================= */
-
-function calcular() {
-  const tolerancia = Number($("tolerance").value);
-  const maxIteraciones = Number($("maxIterations").value);
-
-  x0 = leerX0();
-
-  if (!(tolerancia > 0) || !Number.isFinite(tolerancia)) {
-    $("validationMessage").className = "message error";
-    $("validationMessage").textContent =
-      "La tolerancia debe ser un número positivo y finito.";
-    return;
-  }
-
-  if (
-    !(maxIteraciones >= 1) ||
-    !Number.isInteger(maxIteraciones)
-  ) {
-    $("validationMessage").className = "message error";
-    $("validationMessage").textContent =
-      "El máximo de iteraciones debe ser un entero positivo.";
-    return;
-  }
-
-  if (
-    x0.length !== A.length ||
-    x0.some(valor => !Number.isFinite(valor))
-  ) {
-    $("validationMessage").className = "message error";
-    $("validationMessage").textContent =
-      "Completa las cuatro componentes numéricas de x₀.";
-    return;
-  }
-
-  const validacion = validarModelo(A, b);
-
-  if (!validacion.valido) {
-    $("validationMessage").className = "message error";
-    $("validationMessage").textContent = validacion.mensaje;
-
-    limpiarResultados();
-    return;
-  }
-
-  try {
-    const opciones = {
-      tolerancia,
-      maxIteraciones,
-      x0: [...x0],
-      precondicionador: $("preconditioner").value
-    };
-
-    const r = ejecutar(A, b, opciones);
-
-    mostrarMetricas(r);
-    mostrarTablaSolucion(r);
-    mostrarDiagnosticos(r, opciones);
-    dibujarComparacion(opciones);
-    dibujarGraficoCondicion(ultimaComparacion);
-    dibujarGraficoAsignacion(ultimaComparacion);
-    dibujarInterpretacion(r, opciones);
-    mostrarProcedimiento(r, opciones);
-
-    $("validationMessage").className = "message success";
-    $("validationMessage").textContent =
-      validacion.mensaje +
-      " Se completó la comparación de Gauss, GC y GCP.";
-
-  } catch (error) {
-    $("validationMessage").className = "message error";
-    $("validationMessage").textContent =
-      "Error de cálculo: " + error.message;
-  }
-}
-
-/* =========================================================
-   MÉTRICAS
-========================================================= */
-
-function mostrarMetricas(r) {
-  $("conditionA").textContent = fmt(r.condA, 5);
-  $("conditionPre").textContent = fmt(r.condPre, 5);
-  $("iterationsGC").textContent = r.gc.iteraciones;
-  $("iterationsPCG").textContent = r.gcp.iteraciones;
-}
-
-/* =========================================================
-   TABLA DE SOLUCIÓN Y CONCLUSIONES POR ÁREA
-========================================================= */
-
-function conclusionArea(variable, error, convergio) {
-  if (!convergio) {
-    return (
-      `Para ${variable.nombre.toLowerCase()}, GCP no alcanzó ` +
-      "la tolerancia. No conviene interpretar esta aproximación " +
-      "como una asignación suficientemente precisa sin revisar " +
-      "las iteraciones o los datos."
-    );
-  }
-
-  if (
-    error.porcentual !== null &&
-    error.porcentual < 0.01
-  ) {
-    return (
-      `La estimación de ${variable.nombre.toLowerCase()} es muy ` +
-      `cercana a Gauss (error ${fmt(error.porcentual, 5)} %). ` +
-      "Dentro del modelo, la asignación es numéricamente consistente."
-    );
-  }
-
-  if (
-    error.porcentual !== null &&
-    error.porcentual < 1
-  ) {
-    return (
-      `La estimación de ${variable.nombre.toLowerCase()} presenta ` +
-      `un error porcentual de ${fmt(error.porcentual, 4)} %. ` +
-      "La aproximación parece consistente, pero la asignación " +
-      "debe contrastarse con las necesidades reales del área."
-    );
-  }
-
-  if (error.porcentual === null) {
-    return (
-      `La referencia de ${variable.nombre.toLowerCase()} es cero; ` +
-      "no se puede definir un error porcentual. Debe revisarse " +
-      "la interpretación de esta asignación en el modelo."
-    );
-  }
-
-  return (
-    `La estimación de ${variable.nombre.toLowerCase()} tiene un ` +
-    `error porcentual de ${fmt(error.porcentual, 4)} %. ` +
-    "Antes de utilizarla para distribuir recursos, conviene " +
-    "revisar la convergencia y los datos de entrada."
-  );
-}
-
-function mostrarTablaSolucion(r) {
-  const tabla = $("solutionTable");
-  tabla.innerHTML = "";
-
-  VARIABLES.forEach((variable, i) => {
-    const error = r.errores[i];
-    const fila = document.createElement("tr");
-
-    const valores = [
-      variable.id,
-      variable.nombre,
-      fmt(r.ref[i]),
-      fmt(r.gc.x[i]),
-      fmt(r.gcp.x[i]),
-      fmt(error.absoluto, 7),
-      error.relativo === null
-        ? "No definido"
-        : fmt(error.relativo, 8),
-      error.porcentual === null
-        ? "No definido"
-        : fmt(error.porcentual, 6) + " %"
-    ];
-
-    valores.forEach((valor, j) => {
-      const celda = document.createElement("td");
-      celda.textContent = valor;
-
-      if (j < 2) {
-        celda.style.textAlign = "left";
-      }
-
-      fila.appendChild(celda);
-    });
-
-    tabla.appendChild(fila);
+  r.valid.menores.forEach((v,i)=>{
+   const el=document.createElement("div");
+   el.className="minor-chip";
+   el.textContent=`Δ${i+1} = ${fmt(v,8)} ${v>0?"✓":"✗"}`;
+   mp.appendChild(el);
   });
 
-  $("solutionConclusion").innerHTML =
-    "<h3>Conclusión de la solución</h3><p>" +
-    "La distribución calculada mediante GCP se compara con la " +
-    "referencia de Gauss. El residuo relativo final de GCP es " +
-    exp(r.residuoGCP) +
-    ". Esto permite evaluar la precisión numérica de las cuatro " +
-    "asignaciones. Como los datos son sintéticos, las cifras " +
-    "sirven para analizar el método, no como presupuesto real.</p>";
+  dibujarComparacion(opciones);
+  dibujarGrafico(ultimaComparacion);
+  dibujarGraficoCartesiano(ultimaComparacion);
+  dibujarInterpretacion(r,opciones);
+
+  $("validationMessage").className="message success";
+  $("validationMessage").textContent=valid.mensaje+" Gauss, GC y GCP se ejecutaron; revisa convergencia y residuos.";
+
+ }catch(err){
+  $("validationMessage").className="message error";
+  $("validationMessage").textContent="Error de cálculo: "+err.message;
+ }
 }
 
-/* =========================================================
-   DIAGNÓSTICOS MATEMÁTICOS
-========================================================= */
+function dibujarComparacion(opciones){
+ ultimaComparacion=[];
 
-function mostrarDiagnosticos(r, opciones) {
-  const contenedor = $("diagnostics");
-  contenedor.innerHTML = "";
-
-  const datos = [
-    [
-      "Convergencia GC",
-      r.gc.convergio ? "Sí" : "No alcanzó la tolerancia"
-    ],
-    [
-      "Convergencia GCP",
-      r.gcp.convergio ? "Sí" : "No alcanzó la tolerancia"
-    ],
-    ["Residuo relativo GC", exp(r.residuoGC)],
-    ["Residuo relativo GCP", exp(r.residuoGCP)],
-    ["Número de condición κ₂(A)", fmt(r.condA, 8)],
-    ["Condición equivalente", fmt(r.condPre, 8)],
-    [
-      "Precondicionador",
-      opciones.precondicionador === "jacobi"
-        ? "Jacobi diagonal"
-        : "Identidad"
-    ],
-    ["Vector inicial x₀", prettyVector(x0)],
-    [
-      "Criterio de parada",
-      `Residuo relativo < ${opciones.tolerancia.toExponential(1)}`
-    ],
-    ["Máximo de iteraciones", opciones.maxIteraciones]
-  ];
-
-  datos.forEach(([etiqueta, valor]) => {
-    contenedor.appendChild(
-      diagnostico(etiqueta, String(valor))
-    );
-  });
-
-  $("symmetryProof").textContent =
-    "La validación confirmó que A es simétrica y definida positiva. " +
-    "Los menores principales se utilizan para comprobar el criterio de Sylvester.";
-
-  const menores = $("minorProof");
-  menores.innerHTML = "";
-
-  (r.valid.menores || []).forEach((valor, i) => {
-    const chip = document.createElement("div");
-    chip.className = "minor-chip";
-
-    chip.textContent =
-      `Δ${i + 1} = ${fmt(valor, 8)} ${valor > 0 ? "✓" : "✗"}`;
-
-    menores.appendChild(chip);
-  });
-
-  let conclusion =
-    `El residuo relativo final de GCP es ${exp(r.residuoGCP)}. `;
-
-  if (!r.gcp.convergio) {
-    conclusion +=
-      "GCP no alcanzó la tolerancia solicitada; antes de interpretar " +
-      "la distribución financiera conviene revisar los parámetros.";
-  } else if (r.condPre < r.condA) {
-    conclusion +=
-      "El número de condición estimado disminuyó con el precondicionamiento. " +
-      "Esto indica una mejora en el condicionamiento del sistema equivalente, " +
-      "aunque no garantiza por sí solo menos iteraciones.";
-  } else {
-    conclusion +=
-      "No se observa una reducción del número de condición con la " +
-      "configuración elegida. La conveniencia del precondicionador debe " +
-      "evaluarse comparando los resultados.";
+ for(const e of Object.values(ESCENARIOS)){
+  try{
+   const r=ejecutar(e.A,e.b,opciones);
+   ultimaComparacion.push({e,r});
+  }catch(err){
+   ultimaComparacion.push({e,error:err.message});
   }
+ }
 
-  conclusion +=
-    " En el desafío financiero, estos diagnósticos permiten determinar " +
-    "si la distribución calculada es numéricamente confiable dentro del modelo.";
+ const rows=[
+  ["Solución de referencia (Gauss)",v=>prettyVector(v.r.ref)],
+  ["Solución GCP",v=>prettyVector(v.r.gcp.x)],
+  ...VARIABLES.map((variable,i)=>[
+   `Ea GCP — ${variable.id}`,
+   v=>fmt(v.r.err[i].absoluto,8)
+  ]),
+  ...VARIABLES.map((variable,i)=>[
+   `Ep GCP — ${variable.id}`,
+   v=>v.r.err[i].porcentual===null?"No definido":fmt(v.r.err[i].porcentual,6)+" %"
+  ]),
+  ["Error absoluto máximo GCP",v=>fmt(Math.max(...v.r.err.map(z=>z.absoluto)),8)],
+  ["Error porcentual máximo GCP",v=>fmt(Math.max(...v.r.err.map(z=>z.porcentual??0)),6)+" %"],
+  ["Iteraciones GC",v=>String(v.r.gc.iteraciones)],
+  ["Iteraciones GCP",v=>String(v.r.gcp.iteraciones)],
+  ["κ₂(A)",v=>fmt(v.r.condA,7)],
+  ["κ₂(M⁻¹A) equivalente",v=>fmt(v.r.condPre,7)],
+  ["Residuo relativo final GCP",v=>exp(v.r.resGCP)],
+  ["¿Convergió GCP?",v=>v.r.gcp.convergio?"Sí":"No"],
+  ["Interpretación financiera",v=>interpretacionEscenario(v.e,v.r)]
+ ];
 
-  $("diagnosticsConclusion").innerHTML =
-    "<h3>Conclusión del diagnóstico</h3><p>" +
-    escaparHTML(conclusion) +
-    "</p>";
+ const tb=$("comparisonTable");
+ tb.innerHTML="";
+
+ rows.forEach(([label,get])=>{
+  const tr=document.createElement("tr");
+  const first=document.createElement("td");
+  first.textContent=label;
+  first.style.textAlign="left";
+  tr.appendChild(first);
+
+  ultimaComparacion.forEach(v=>{
+   const td=document.createElement("td");
+   td.textContent=v.error||get(v);
+   tr.appendChild(td);
+  });
+
+  tb.appendChild(tr);
+ });
+
+ conclusionIngenieria(
+  $("comparisonTable").parentElement.parentElement,
+  "La comparación entre escenarios permite anticipar cómo una variación de demanda o de escala afecta la asignación de recursos y el comportamiento numérico. Desde Ingeniería de Sistemas, esto ayuda a evaluar alternativas de planificación y a identificar escenarios que requieren mayor control o una estrategia de precondicionamiento."
+ );
 }
 
-/* =========================================================
-   COMPARACIÓN DE LOS TRES ESCENARIOS
-========================================================= */
+function interpretacionEscenario(e,r){
+ if(e.id==="estres"){
+  return `El cambio de demanda desplaza la asignación a ${prettyVector(r.ref)} miles de Bs; A no cambió y κ₂(A) se mantiene como en el ideal.`;
+ }
 
-function conclusionEscenario(escenario, r) {
-  if (escenario.id === "estres") {
-    return (
-      "En el escenario de bajo estrés se modifica la demanda representada " +
-      "por b, mientras se mantiene la matriz A. Por ello, cambia la " +
-      "distribución estimada de recursos, pero el condicionamiento de A " +
-      "debe mantenerse como en el escenario ideal."
-    );
-  }
+ if(e.id==="mal"){
+  return `El escalamiento desigual eleva κ₂(A) a ${fmt(r.condA,4)}; Jacobi lo reduce a ${fmt(r.condPre,4)}. Conviene revisar la sensibilidad de las áreas con mayor escala.`;
+ }
 
-  if (escenario.id === "mal") {
-    return (
-      `En el escenario mal condicionado, κ₂(A) = ${fmt(r.condA, 5)} ` +
-      `y la condición equivalente es ${fmt(r.condPre, 5)}. ` +
-      "La diferencia de escalas puede dificultar el cálculo; Jacobi " +
-      "se evalúa para determinar si ayuda a mejorar la situación."
-    );
-  }
-
-  return (
-    "El escenario ideal sirve como referencia de comparación. " +
-    "La solución permite examinar cómo se distribuyen los recursos " +
-    "cuando los coeficientes del modelo tienen escalas más equilibradas."
-  );
+ return `Caso base: asignación estimada ${prettyVector(r.ref)} miles de Bs. Sirve como referencia para valorar el estrés y el mal escalamiento.`;
 }
 
-function dibujarComparacion(opciones) {
-  ultimaComparacion = [];
+function dibujarGraficoCartesiano(datos){
+ const cont=$("allocationChart");
+ cont.innerHTML="";
 
-  for (const escenario of Object.values(ESCENARIOS)) {
-    try {
-      const r = ejecutar(
-        escenario.A,
-        escenario.b,
-        opciones
-      );
+ const validos=datos.filter(v=>v.r);
 
-      ultimaComparacion.push({ e: escenario, r });
-    } catch (error) {
-      ultimaComparacion.push({
-        e: escenario,
-        error: error.message
-      });
-    }
-  }
+ if(!validos.length){
+  cont.textContent="No hay resultados válidos para graficar.";
+  return;
+ }
 
-  const filas = [
-    [
-      "Solución de Gauss",
-      item => prettyVector(item.r.ref)
-    ],
-    [
-      "Solución GCP",
-      item => prettyVector(item.r.gcp.x)
-    ],
-    [
-      "Error absoluto máximo GCP",
-      item => fmt(
-        Math.max(...item.r.errores.map(error => error.absoluto)),
-        8
-      )
-    ],
-    [
-      "Error porcentual máximo GCP",
-      item => {
-        const errores = item.r.errores
-          .map(error => error.porcentual)
-          .filter(valor => valor !== null);
+ const ns="http://www.w3.org/2000/svg";
+ const W=760,H=340,L=65,R=24,T=22,B=55;
+ const plotW=W-L-R,plotH=H-T-B;
 
-        return errores.length
-          ? fmt(Math.max(...errores), 6) + " %"
-          : "No definido";
-      }
-    ],
-    [
-      "Iteraciones GC",
-      item => String(item.r.gc.iteraciones)
-    ],
-    [
-      "Iteraciones GCP",
-      item => String(item.r.gcp.iteraciones)
-    ],
-    [
-      "κ₂(A)",
-      item => fmt(item.r.condA, 7)
-    ],
-    [
-      "κ₂ equivalente",
-      item => fmt(item.r.condPre, 7)
-    ],
-    [
-      "Residuo relativo GCP",
-      item => exp(item.r.residuoGCP)
-    ],
-    [
-      "¿Convergió GCP?",
-      item => item.r.gcp.convergio ? "Sí" : "No"
-    ]
-  ];
+ const svg=document.createElementNS(ns,"svg");
+ svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+ svg.setAttribute("role","img");
+ svg.setAttribute("aria-label","Comparación cartesiana de asignación por área en miles de bolivianos");
 
-  const tabla = $("comparisonTable");
-  tabla.innerHTML = "";
+ const todos=validos.flatMap(v=>v.r.ref);
+ const minimo=Math.min(0,...todos);
+ const maximo=Math.max(1,...todos);
+ const rango=maximo-minimo||1;
+ const minGraf=minimo-(rango*0.05);
+ const maxGraf=maximo+(rango*0.08);
+ const rangoGraf=maxGraf-minGraf;
 
-  filas.forEach(([etiqueta, obtener]) => {
-    const fila = document.createElement("tr");
-    const primera = document.createElement("td");
+ const el=(tag,attrs={},textValue="")=>{
+  const n=document.createElementNS(ns,tag);
+  Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));
+  if(textValue!="")n.textContent=textValue;
+  svg.appendChild(n);
+  return n;
+ };
 
-    primera.textContent = etiqueta;
-    primera.style.textAlign = "left";
-    fila.appendChild(primera);
+ for(let k=0;k<=4;k++){
+  const val=minGraf+(rangoGraf*k/4);
+  const y=T+plotH-((val-minGraf)/rangoGraf)*plotH;
+  el("line",{x1:L,y1:y,x2:W-R,y2:y,class:"chart-gridline"});
+  el("text",{x:L-10,y:y+4,"text-anchor":"end",class:"chart-axis-label"},fmt(val,1));
+ }
 
-    ultimaComparacion.forEach(item => {
-      const celda = document.createElement("td");
-      celda.textContent = item.error || obtener(item);
-      fila.appendChild(celda);
-    });
+ el("line",{x1:L,y1:T,x2:L,y2:T+plotH,class:"chart-axis"});
+ el("line",{x1:L,y1:T+plotH,x2:W-R,y2:T+plotH,class:"chart-axis"});
 
-    tabla.appendChild(fila);
+ const xpos=i=>L+(plotW/(VARIABLES.length-1))*i;
+ const ypos=v=>T+plotH-((v-minGraf)/rangoGraf)*plotH;
+
+ VARIABLES.forEach((v,i)=>{
+  el("text",{x:xpos(i),y:H-29,"text-anchor":"middle",class:"chart-axis-label"},v.id);
+  el("text",{x:xpos(i),y:H-13,"text-anchor":"middle",class:"chart-category-label"},v.nombre.length>17?v.nombre.slice(0,16)+"…":v.nombre);
+ });
+
+ const colors=["#78aaff","#ffb86b","#c4a5ff"];
+
+ validos.forEach((item,index)=>{
+  const pts=item.r.ref.map((value,i)=>`${xpos(i)},${ypos(value)}`).join(" ");
+
+  el("polyline",{
+   points:pts,
+   fill:"none",
+   stroke:colors[index%colors.length],
+   "stroke-width":"3",
+   "stroke-linejoin":"round",
+   "stroke-linecap":"round"
   });
 
-  const contenedor = $("scenarioConclusions");
-  contenedor.innerHTML = "";
+  item.r.ref.forEach((value,i)=>{
+   const c=el("circle",{
+    cx:xpos(i),
+    cy:ypos(value),
+    r:4,
+    fill:colors[index%colors.length],
+    stroke:"#0b1426",
+    "stroke-width":"1.5"
+   });
 
-  ultimaComparacion.forEach(item => {
-    if (!item.r) return;
-
-    const tarjeta = document.createElement("article");
-    tarjeta.className = "scenario-conclusion";
-
-    const titulo = document.createElement("h4");
-    titulo.textContent = "Conclusión · " + item.e.nombre;
-
-    const texto = document.createElement("p");
-    texto.textContent =
-      conclusionEscenario(item.e, item.r) +
-      ` GCP ${item.r.gcp.convergio ? "alcanzó" : "no alcanzó"} ` +
-      `la tolerancia en ${item.r.gcp.iteraciones} iteraciones, ` +
-      `con un residuo relativo de ${exp(item.r.residuoGCP)}.`;
-
-    tarjeta.append(titulo, texto);
-    contenedor.appendChild(tarjeta);
+   const title=document.createElementNS(ns,"title");
+   title.textContent=`${item.e.nombre} · ${VARIABLES[i].id}: ${fmt(value,4)} miles de Bs`;
+   c.appendChild(title);
   });
+ });
 
-  const validos = ultimaComparacion.filter(item => item.r);
+ cont.appendChild(svg);
 
-  if (validos.length) {
-    const maximoError = Math.max(
-      ...validos.map(item =>
-        Math.max(
-          ...item.r.errores.map(error => error.absoluto)
-        )
-      )
-    );
+ const legend=document.createElement("div");
+ legend.className="chart-legend";
 
-    $("comparisonConclusion").innerHTML =
-      "<h3>Conclusión comparativa</h3><p>" +
-      "Los escenarios permiten estudiar el efecto de los cambios " +
-      "en la demanda y las escalas de la matriz. El mayor error " +
-      "absoluto de GCP frente a Gauss entre los escenarios válidos " +
-      `es ${fmt(maximoError, 7)}. ` +
-      "Para tomar decisiones financieras reales se deben utilizar " +
-      "datos observados y restricciones presupuestarias explícitas.</p>";
-  }
+ validos.forEach((item,index)=>{
+  const span=document.createElement("span");
+  const dot=document.createElement("i");
+  dot.style.background=colors[index%colors.length];
+  span.append(dot,document.createTextNode(item.e.nombre));
+  legend.appendChild(span);
+ });
+
+ cont.appendChild(legend);
+
+ conclusionIngenieria(
+  cont.parentElement,
+  "El gráfico permite visualizar qué áreas concentran mayor asignación en cada escenario. Para Ingeniería de Sistemas, esta comparación facilita identificar prioridades de inversión y observar si la infraestructura, el desarrollo, la seguridad y el mantenimiento mantienen un equilibrio razonable."
+ );
 }
 
-/* =========================================================
-   GRÁFICO CARTESIANO: DISTRIBUCIÓN POR ÁREA
-========================================================= */
+function dibujarGrafico(datos){
+ const cont=$("conditionChart");
+ cont.innerHTML="";
 
-function dibujarGraficoAsignacion(datos) {
-  const contenedor = $("allocationChart");
-  contenedor.innerHTML = "";
+ const vals=datos.filter(v=>v.r)
+  .flatMap(v=>[v.r.condA,v.r.condPre])
+  .filter(Number.isFinite);
 
-  const validos = datos.filter(item => item.r);
+ const maxLog=Math.max(1,...vals.map(v=>Math.log10(Math.max(v,1))));
 
-  if (!validos.length) {
-    contenedor.textContent =
-      "No existen resultados válidos para graficar.";
-    return;
-  }
+ datos.forEach(({e,r,error})=>{
+  if(!r)return;
 
-  const NS = "http://www.w3.org/2000/svg";
+  const group=document.createElement("div");
+  group.className="chart-group";
 
-  const ancho = 760;
-  const alto = 330;
-  const izquierda = 65;
-  const derecha = 25;
-  const arriba = 25;
-  const abajo = 62;
+  const title=document.createElement("h4");
+  title.textContent=e.nombre;
+  group.appendChild(title);
 
-  const anchoGrafico = ancho - izquierda - derecha;
-  const altoGrafico = alto - arriba - abajo;
+  [["κ₂(A)",r.condA,"bar-a"],["κ₂ precond.",r.condPre,"bar-p"]].forEach(([label,value,cls])=>{
+   const line=document.createElement("div");
+   line.className="bar-line";
 
-  const svg = document.createElementNS(NS, "svg");
+   const name=document.createElement("span");
+   name.textContent=label;
 
-  svg.setAttribute("viewBox", `0 0 ${ancho} ${alto}`);
-  svg.setAttribute("role", "img");
-  svg.setAttribute(
-    "aria-label",
-    "Comparación cartesiana de las asignaciones financieras por área"
-  );
+   const track=document.createElement("div");
+   track.className="bar-track";
 
-  const valores = validos.flatMap(item => item.r.ref);
+   const bar=document.createElement("div");
+   bar.className="bar "+cls;
+   bar.style.width=`${Math.max(1,Math.log10(Math.max(value,1))/maxLog*100)}%`;
 
-  const minimo = Math.min(0, ...valores);
-  const maximo = Math.max(1, ...valores);
-  const rango = maximo - minimo || 1;
+   track.appendChild(bar);
 
-  const minimoGrafico = minimo - rango * 0.05;
-  const maximoGrafico = maximo + rango * 0.1;
-  const rangoGrafico = maximoGrafico - minimoGrafico;
+   const val=document.createElement("strong");
+   val.textContent=fmt(value,4);
 
-  const agregar = (etiqueta, atributos, texto = "") => {
-    const nodo = document.createElementNS(NS, etiqueta);
-
-    Object.entries(atributos).forEach(([clave, valor]) => {
-      nodo.setAttribute(clave, valor);
-    });
-
-    if (texto !== "") {
-      nodo.textContent = texto;
-    }
-
-    svg.appendChild(nodo);
-    return nodo;
-  };
-
-  const xPosicion = i =>
-    izquierda +
-    (anchoGrafico / (VARIABLES.length - 1)) * i;
-
-  const yPosicion = valor =>
-    arriba +
-    altoGrafico -
-    ((valor - minimoGrafico) / rangoGrafico) * altoGrafico;
-
-  for (let i = 0; i <= 4; i++) {
-    const valor =
-      minimoGrafico + rangoGrafico * i / 4;
-
-    const y = yPosicion(valor);
-
-    agregar("line", {
-      x1: izquierda,
-      y1: y,
-      x2: ancho - derecha,
-      y2: y,
-      class: "chart-gridline"
-    });
-
-    agregar("text", {
-      x: izquierda - 9,
-      y: y + 4,
-      "text-anchor": "end",
-      class: "chart-axis-label"
-    }, fmt(valor, 1));
-  }
-
-  agregar("line", {
-    x1: izquierda,
-    y1: arriba,
-    x2: izquierda,
-    y2: arriba + altoGrafico,
-    class: "chart-axis"
+   line.append(name,track,val);
+   group.appendChild(line);
   });
 
-  agregar("line", {
-    x1: izquierda,
-    y1: arriba + altoGrafico,
-    x2: ancho - derecha,
-    y2: arriba + altoGrafico,
-    class: "chart-axis"
-  });
+  cont.appendChild(group);
+ });
 
-  VARIABLES.forEach((variable, i) => {
-    agregar("text", {
-      x: xPosicion(i),
-      y: alto - 35,
-      "text-anchor": "middle",
-      class: "chart-axis-label"
-    }, variable.id);
-
-    const nombre =
-      variable.nombre.length > 17
-        ? variable.nombre.slice(0, 16) + "…"
-        : variable.nombre;
-
-    agregar("text", {
-      x: xPosicion(i),
-      y: alto - 17,
-      "text-anchor": "middle",
-      class: "chart-category-label"
-    }, nombre);
-  });
-
-  const colores = [
-    "#86b7ff",
-    "#ffbb79",
-    "#c2a0ff"
-  ];
-
-  validos.forEach((item, indice) => {
-    const puntos = item.r.ref
-      .map((valor, i) =>
-        `${xPosicion(i)},${yPosicion(valor)}`
-      )
-      .join(" ");
-
-    agregar("polyline", {
-      points: puntos,
-      fill: "none",
-      stroke: colores[indice % colores.length],
-      "stroke-width": 3,
-      "stroke-linejoin": "round",
-      "stroke-linecap": "round"
-    });
-
-    item.r.ref.forEach((valor, i) => {
-      const circulo = agregar("circle", {
-        cx: xPosicion(i),
-        cy: yPosicion(valor),
-        r: 4,
-        fill: colores[indice % colores.length],
-        stroke: "#080808",
-        "stroke-width": 1.5
-      });
-
-      const titulo = document.createElementNS(NS, "title");
-
-      titulo.textContent =
-        `${item.e.nombre} · ${VARIABLES[i].nombre}: ` +
-        `${fmt(valor, 4)} miles de Bs`;
-
-      circulo.appendChild(titulo);
-    });
-  });
-
-  contenedor.appendChild(svg);
-
-  const leyenda = document.createElement("div");
-  leyenda.className = "chart-legend";
-
-  validos.forEach((item, indice) => {
-    const elemento = document.createElement("span");
-    const punto = document.createElement("i");
-
-    punto.style.background = colores[indice % colores.length];
-
-    elemento.append(
-      punto,
-      document.createTextNode(item.e.nombre)
-    );
-
-    leyenda.appendChild(elemento);
-  });
-
-  contenedor.appendChild(leyenda);
-
-  let mayor = {
-    valor: -Infinity,
-    variable: VARIABLES[0],
-    escenario: ""
-  };
-
-  validos.forEach(item => {
-    item.r.ref.forEach((valor, i) => {
-      if (Math.abs(valor) > Math.abs(mayor.valor)) {
-        mayor = {
-          valor,
-          variable: VARIABLES[i],
-          escenario: item.e.nombre
-        };
-      }
-    });
-  });
-
-  $("allocationConclusion").innerHTML =
-    "<h3>Conclusión del gráfico</h3><p>" +
-    "El gráfico permite comparar cómo se distribuyen los recursos " +
-    "entre las cuatro áreas según el escenario. La mayor magnitud " +
-    "representada corresponde a " +
-    escaparHTML(mayor.variable.nombre) +
-    `, con ${fmt(mayor.valor, 5)} miles de Bs en el escenario ` +
-    escaparHTML(mayor.escenario) +
-    ". Una asignación mayor no implica automáticamente una prioridad " +
-    "empresarial: debe contrastarse con las necesidades y los riesgos reales.</p>";
+ conclusionIngenieria(
+  cont.parentElement,
+  "El número de condición muestra qué tan sensible puede ser la solución ante cambios en los datos. En Ingeniería de Sistemas, revisar este indicador ayuda a valorar la estabilidad de los cálculos que se utilizan para apoyar decisiones de asignación y planificación tecnológica."
+ );
 }
 
-/* =========================================================
-   GRÁFICO DE NÚMERO DE CONDICIÓN
-========================================================= */
+function dibujarInterpretacion(r,op){
+ const cont=$("interpretation");
+ cont.innerHTML="";
 
-function dibujarGraficoCondicion(datos) {
-  const contenedor = $("conditionChart");
-  contenedor.innerHTML = "";
+ const p1=document.createElement("p");
+ p1.textContent=`En el escenario “${ESCENARIOS[actual].nombre}”, Gauss proporciona la solución numérica de referencia. GC ${r.gc.convergio?"alcanzó":"no alcanzó"} la tolerancia en ${r.gc.iteraciones} iteraciones; GCP ${r.gcp.convergio?"alcanzó":"no alcanzó"} la tolerancia en ${r.gcp.iteraciones} iteraciones. El residuo relativo final de GCP es ${exp(r.resGCP)}.`;
 
-  const validos = datos.filter(item => item.r);
+ const p2=document.createElement("p");
+ p2.textContent=`El número de condición estimado cambia de ${fmt(r.condA,5)} para A a ${fmt(r.condPre,5)} para la matriz simétrica equivalente ${op.precondicionador==="jacobi"?"de Jacobi":"con identidad"}. Si el valor precondicionado es menor, la transformación mejora el condicionamiento estimado; el efecto real sobre iteraciones se comprueba en la tabla.`;
 
-  if (!validos.length) {
-    contenedor.textContent =
-      "No existen resultados válidos para graficar.";
-    return;
-  }
+ const p3=document.createElement("p");
 
-  const valores = validos.flatMap(item => [
-    item.r.condA,
-    item.r.condPre
-  ]).filter(Number.isFinite);
+ if(actual==="estres"){
+  p3.textContent="Interpretación del estrés: se modificó el vector b manteniendo A. Por tanto, cambia la solución financiera estimada, pero el número de condición de A debe mantenerse igual que en el escenario ideal.";
+ }else if(actual==="mal"){
+  p3.textContent="Interpretación del mal escalamiento: se multiplicaron filas y columnas por factores de escala distintos, equivalente a D·A·D. Esto conserva simetría y definición positiva, pero puede aumentar el número de condición. Jacobi busca compensar la escala dispar.";
+ }else{
+  p3.textContent="Interpretación del escenario ideal: la matriz base tiene coeficientes de escala relativamente equilibrada. Se utiliza como punto de comparación para estudiar el impacto de cambiar la demanda financiera o el escalamiento.";
+ }
 
-  const maxLog = Math.max(
-    1,
-    ...valores.map(valor =>
-      Math.log10(Math.max(valor, 1))
-    )
-  );
+ const p4=document.createElement("p");
+ p4.textContent=interpretacionEscenario(ESCENARIOS[actual],r);
 
-  validos.forEach(({ e, r }) => {
-    const grupo = document.createElement("div");
-    grupo.className = "chart-group";
+ cont.append(p1,p2,p3,p4);
 
-    const titulo = document.createElement("h4");
-    titulo.textContent = e.nombre;
-    grupo.appendChild(titulo);
-
-    [
-      ["κ₂(A)", r.condA, "bar-a"],
-      ["κ₂ equivalente", r.condPre, "bar-p"]
-    ].forEach(([etiqueta, valor, clase]) => {
-      const fila = document.createElement("div");
-      fila.className = "bar-line";
-
-      const nombre = document.createElement("span");
-      nombre.textContent = etiqueta;
-
-      const pista = document.createElement("div");
-      pista.className = "bar-track";
-
-      const barra = document.createElement("div");
-      barra.className = "bar " + clase;
-
-      barra.style.width =
-        `${Math.max(
-          1,
-          Math.log10(Math.max(valor, 1)) / maxLog * 100
-        )}%`;
-
-      pista.appendChild(barra);
-
-      const resultado = document.createElement("strong");
-      resultado.textContent = fmt(valor, 5);
-
-      fila.append(nombre, pista, resultado);
-      grupo.appendChild(fila);
-    });
-
-    contenedor.appendChild(grupo);
-  });
-
-  const item = validos.find(v => v.e.id === actual) || validos[0];
-
-  let conclusion =
-    `En el escenario ${item.e.nombre}, κ₂(A) es ` +
-    `${fmt(item.r.condA, 5)} y la condición equivalente es ` +
-    `${fmt(item.r.condPre, 5)}. `;
-
-  if (item.r.condPre < item.r.condA) {
-    conclusion +=
-      "La reducción indica una mejora en el condicionamiento " +
-      "estimado del sistema equivalente.";
-  } else {
-    conclusion +=
-      "No se observa una reducción del número de condición " +
-      "con el precondicionador seleccionado.";
-  }
-
-  conclusion +=
-    " Un mejor condicionamiento puede favorecer la estabilidad " +
-    "del cálculo de las asignaciones, pero no sustituye la " +
-    "validación financiera del modelo.";
-
-  $("conditionConclusion").innerHTML =
-    "<h3>Conclusión del condicionamiento</h3><p>" +
-    escaparHTML(conclusion) +
-    "</p>";
+ conclusionIngenieria(
+  cont,
+  "La interpretación conjunta de convergencia, residuo y condicionamiento permite juzgar si la distribución calculada es numéricamente confiable. En Ingeniería de Sistemas, este análisis se traduce en una herramienta de apoyo para planificar recursos tecnológicos, comparar alternativas y justificar decisiones con indicadores cuantificables."
+ );
 }
 
-/* =========================================================
-   INTERPRETACIÓN FINANCIERA
-========================================================= */
+/* EVENTOS E INICIALIZACIÓN */
 
-function dibujarInterpretacion(r, opciones) {
-  const contenedor = $("interpretation");
-  contenedor.innerHTML = "";
+$("runCalculation").onclick=calcular;
 
-  const parrafo1 = document.createElement("p");
-
-  parrafo1.textContent =
-    `En el escenario «${ESCENARIOS[actual].nombre}», Gauss ` +
-    "proporciona la solución numérica de referencia. GC " +
-    (r.gc.convergio ? "alcanzó" : "no alcanzó") +
-    ` la tolerancia en ${r.gc.iteraciones} iteraciones; GCP ` +
-    (r.gcp.convergio ? "alcanzó" : "no alcanzó") +
-    ` la tolerancia en ${r.gcp.iteraciones} iteraciones. ` +
-    `El residuo relativo final de GCP es ${exp(r.residuoGCP)}.`;
-
-  const parrafo2 = document.createElement("p");
-
-  parrafo2.textContent =
-    `El número de condición de A es ${fmt(r.condA, 5)}, ` +
-    `mientras que el de la matriz equivalente es ${fmt(r.condPre, 5)}. ` +
-    `El precondicionador seleccionado es ${
-      opciones.precondicionador === "jacobi"
-        ? "Jacobi diagonal"
-        : "identidad"
-    }. La comparación permite evaluar si el escalamiento mejora ` +
-    "el condicionamiento y si afecta las iteraciones.";
-
-  const parrafo3 = document.createElement("p");
-
-  if (actual === "estres") {
-    parrafo3.textContent =
-      "En el escenario de bajo estrés cambia el vector b y se mantiene " +
-      "la matriz A. Por tanto, cambia la asignación financiera estimada, " +
-      "pero no debería cambiar el condicionamiento de la matriz original.";
-  } else if (actual === "mal") {
-    parrafo3.textContent =
-      "En el escenario mal condicionado, las escalas de los coeficientes " +
-      "son distintas. Esto puede hacer que el cálculo sea más sensible. " +
-      "Jacobi busca compensar parte de esa diferencia.";
-  } else {
-    parrafo3.textContent =
-      "El escenario ideal funciona como referencia. Permite estudiar " +
-      "cómo los métodos calculan la distribución cuando la escala de " +
-      "los coeficientes es relativamente equilibrada.";
-  }
-
-  const parrafo4 = document.createElement("p");
-
-  parrafo4.textContent =
-    "Conclusión financiera: los métodos numéricos permiten comparar " +
-    "asignaciones hipotéticas para infraestructura, desarrollo, seguridad " +
-    "y mantenimiento. Para convertir estos resultados en decisiones " +
-    "empresariales, se necesitarían costos reales, prioridades operativas " +
-    "y restricciones presupuestarias.";
-
-  contenedor.append(
-    parrafo1,
-    parrafo2,
-    parrafo3,
-    parrafo4
-  );
-}
-
-/* =========================================================
-   PROCEDIMIENTO MATEMÁTICO DESPLEGABLE
-========================================================= */
-
-function mostrarProcedimiento(r, opciones) {
-  const contenedor = $("procedureContent");
-
-  const residuoInicial = b.map(
-    (valor, i) =>
-      valor - multiplicarMatrizVector(A, x0)[i]
-  );
-
-  const Ar = multiplicarMatrizVector(A, residuoInicial);
-
-  const denominadorGC = productoPunto(
-    residuoInicial,
-    Ar
-  );
-
-  const alfaGC =
-    denominadorGC !== 0
-      ? productoPunto(residuoInicial, residuoInicial) /
-        denominadorGC
-      : NaN;
-
-  const x1GC = x0.map(
-    (valor, i) => valor + alfaGC * residuoInicial[i]
-  );
-
-  const residuoGC1 = residuoInicial.map(
-    (valor, i) => valor - alfaGC * Ar[i]
-  );
-
-  const jacobi = opciones.precondicionador === "jacobi";
-
-  const z0 = jacobi
-    ? residuoInicial.map(
-        (valor, i) => valor / A[i][i]
-      )
-    : [...residuoInicial];
-
-  const Az0 = multiplicarMatrizVector(A, z0);
-
-  const denominadorGCP = productoPunto(z0, Az0);
-
-  const alfaGCP =
-    denominadorGCP !== 0
-      ? productoPunto(residuoInicial, z0) /
-        denominadorGCP
-      : NaN;
-
-  const x1GCP = x0.map(
-    (valor, i) => valor + alfaGCP * z0[i]
-  );
-
-  const fmtVector = vector =>
-    "[" + vector.map(valor => fmt(valor, 6)).join("; ") + "]";
-
-  const fmtMatriz = matriz =>
-    matriz.map(fila =>
-      "[" + fila.map(valor => fmt(valor, 5)).join("; ") + "]"
-    ).join("\n");
-
-  contenedor.innerHTML = `
-    <h4>1. Formulación del sistema</h4>
-
-    <p>El problema se representa mediante el sistema lineal Ax = b.
-    Se utiliza Gauss como referencia para comparar los métodos iterativos.</p>
-
-    <pre>A =
-${escaparHTML(fmtMatriz(A))}
-
-b = ${escaparHTML(fmtVector(b))}
-x₀ = ${escaparHTML(fmtVector(x0))}</pre>
-
-    <h4>2. Método de Gauss con pivoteo parcial</h4>
-
-    <ol>
-      <li>Se construye la matriz aumentada [A | b].</li>
-      <li>Se selecciona el pivote de mayor valor absoluto en la columna.</li>
-      <li>Se eliminan los elementos situados debajo del pivote.</li>
-      <li>Se obtiene la solución mediante sustitución regresiva.</li>
-    </ol>
-
-    <p class="formula">Solución de referencia:
-    x = ${escaparHTML(fmtVector(r.ref))}</p>
-
-    <h4>3. Gradientes Conjugados (GC)</h4>
-
-    <p>Se comienza con r₀ = b − Ax₀ y p₀ = r₀.</p>
-
-    <pre>r₀ = ${escaparHTML(fmtVector(residuoInicial))}
-Ap₀ = ${escaparHTML(fmtVector(Ar))}
-α₀ = (r₀ᵀr₀)/(p₀ᵀAp₀) = ${escaparHTML(fmt(alfaGC, 8))}
-x₁ = x₀ + α₀p₀ = ${escaparHTML(fmtVector(x1GC))}
-r₁ = r₀ − α₀Ap₀ = ${escaparHTML(fmtVector(residuoGC1))}</pre>
-
-    <p>Se repiten las iteraciones hasta alcanzar la tolerancia
-    o llegar al máximo permitido.</p>
-
-    <h4>4. Gradientes Conjugados Precondicionado (GCP)</h4>
-
-    <p>Se aplica ${
-      jacobi
-        ? "Jacobi diagonal, usando la diagonal de A."
-        : "la identidad, que no modifica el residuo."
-    }</p>
-
-    <pre>z₀ = M⁻¹r₀ = ${escaparHTML(fmtVector(z0))}
-α₀ = (r₀ᵀz₀)/(p₀ᵀAp₀) = ${escaparHTML(fmt(alfaGCP, 8))}
-x₁ = x₀ + α₀p₀ = ${escaparHTML(fmtVector(x1GCP))}</pre>
-
-    <h4>5. Criterio de parada</h4>
-
-    <pre>Residuo relativo = ||b − Axₖ||₂ / ||b||₂
-Tolerancia = ${escaparHTML(opciones.tolerancia.toExponential(3))}
-Máximo de iteraciones = ${escaparHTML(opciones.maxIteraciones)}
-
-Residuo relativo GC = ${escaparHTML(exp(r.residuoGC))}
-Residuo relativo GCP = ${escaparHTML(exp(r.residuoGCP))}</pre>
-
-    <h4>6. Errores de GCP frente a Gauss</h4>
-
-    <pre>Eaᵢ = |xᵢ(Gauss) − xᵢ(GCP)|
-Erᵢ = Eaᵢ / |xᵢ(Gauss)|
-Epᵢ = 100 × Erᵢ
-
-Solución GC = ${escaparHTML(fmtVector(r.gc.x))}
-Solución GCP = ${escaparHTML(fmtVector(r.gcp.x))}</pre>
-
-    <h4>7. Interpretación del desafío</h4>
-
-    <p>Los componentes de la solución representan las asignaciones
-    estimadas para infraestructura, desarrollo, seguridad y mantenimiento.
-    Los errores permiten evaluar la precisión de los métodos, mientras
-    que el condicionamiento ayuda a estudiar la sensibilidad del cálculo.
-    La distribución es hipotética y no reemplaza una evaluación financiera real.</p>
-  `;
-}
-
-/* =========================================================
-   BOTONES Y EVENTOS
-========================================================= */
-
-$("runCalculation").addEventListener("click", calcular);
-
-$("resetScenario").addEventListener("click", () => {
-  cargar(actual);
+["tolerance","maxIterations","preconditioner"].forEach(id=>
+ $(id).addEventListener("change",()=>{
+  pendiente();
   calcular();
-});
+ })
+);
 
-[
-  "tolerance",
-  "maxIterations",
-  "preconditioner"
-].forEach(id => {
-  $(id).addEventListener("change", () => {
-    pendiente();
-    calcular();
-  });
-});
+$("runQA").onclick=()=>{
+ const resultados=ejecutarPruebasQA();
+ const tb=$("qaTable");
+ tb.innerHTML="";
 
-$("toggleProcedure").addEventListener("click", () => {
-  const contenedor = $("procedureContent");
-  const boton = $("toggleProcedure");
+ resultados.forEach(t=>{
+  const tr=document.createElement("tr");
 
-  const abrir = contenedor.hidden;
-
-  contenedor.hidden = !abrir;
-
-  boton.textContent = abrir
-    ? "Ocultar procedimiento"
-    : "Mostrar procedimiento";
-
-  boton.setAttribute(
-    "aria-expanded",
-    String(abrir)
-  );
-});
-
-/* =========================================================
-   PRUEBAS QA
-========================================================= */
-
-$("runQA").addEventListener("click", () => {
-  const resultados = ejecutarPruebasQA();
-  const tabla = $("qaTable");
-
-  tabla.innerHTML = "";
-
-  resultados.forEach(prueba => {
-    const fila = document.createElement("tr");
-
-    [
-      prueba.prueba,
-      prueba.entrada,
-      prueba.esperado,
-      prueba.obtenido,
-      prueba.conclusion
-    ].forEach((valor, i) => {
-      const celda = document.createElement("td");
-      celda.textContent = valor;
-
-      if (i === 4) {
-        celda.className = prueba.aprobada
-          ? "qa-pass"
-          : "qa-fail";
-      }
-
-      fila.appendChild(celda);
-    });
-
-    tabla.appendChild(fila);
+  [t.prueba,t.entrada,t.esperado,t.obtenido,t.conclusion].forEach((v,i)=>{
+   const td=document.createElement("td");
+   td.textContent=v;
+   if(i===4)td.className=t.aprobada?"qa-pass":"qa-fail";
+   tr.appendChild(td);
   });
 
-  const aprobadas = resultados.filter(
-    prueba => prueba.aprobada
-  ).length;
+  tb.appendChild(tr);
+ });
 
-  const resumen = $("qaSummary");
+ const aprobadas=resultados.filter(t=>t.aprobada).length;
+ $("qaSummary").className="message "+(aprobadas===resultados.length?"success":"error");
+ $("qaSummary").textContent=`Resultado QA: ${aprobadas} de ${resultados.length} pruebas aprobadas.`;
+};
 
-  resumen.className =
-    "message " +
-    (aprobadas === resultados.length ? "success" : "error");
-
-  resumen.textContent =
-    `Resultado QA: ${aprobadas} de ${resultados.length} pruebas aprobadas.`;
-});
-
-/* =========================================================
-   INICIO
-========================================================= */
+$("resetScenario").onclick=()=>cargar(actual);
 
 cargar("ideal");
 calcular();
+agregarConclusionFinal();
