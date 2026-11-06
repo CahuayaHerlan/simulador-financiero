@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090909">
+  <title>Finanzas GCP | Planificación tecnológica</title>
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+
+<body>
+  <header class="topbar">
+    <a class="brand" href="#inicio">
+      <span class="brand-mark">FG</span>
+      <span>FINANZAS <b>GCP</b></span>
+    </a>
+
+    <nav aria-label="Navegación principal">
+      <a href="#modelo">Entradas</a>
+      <a href="#resultados">Resultados</a>
+      <a href="#graficos">Gráficos</a>
+      <a href="#comparacion">Comparación</a>
+      <a href="#qa">Pruebas QA</a>
+    </nav>
+
+    <span class="toplabel">MÉTODOS NUMÉRICOS</span>
+  </header>
+
+  <main class="container" id="inicio">
+
+    <section class="hero">
+      <div class="hero-content">
+        <p class="eyebrow">DESAFÍO ACADÉMICO · UMSA</p>
+
+        <h1>Planificación de recursos tecnológicos</h1>
+
+        <p class="lead">
+          Simulador financiero para estudiar cómo distribuir recursos
+          entre infraestructura, desarrollo de software, seguridad
+          informática y mantenimiento.
+        </p>
+
+        <div class="tags">
+          <span>Ax = b</span>
+          <span>4 variables</span>
+          <span>Gauss</span>
+          <span>GC y GCP</span>
+          <span>Tolerancia 10⁻⁶</span>
+        </div>
+      </div>
+
+      <div class="hero-equation" aria-hidden="true">
+        <span>A</span><span class="accent">x</span><span>= b</span>
+      </div>
+    </section>
+
+    <section class="panel case-study">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">CASO DE ESTUDIO</p>
+          <h2>¿Qué se está modelando?</h2>
+        </div>
+        <span class="status-pill">Modelo hipotético</span>
+      </div>
+
+      <p>
+        Una empresa tecnológica debe distribuir recursos financieros
+        entre cuatro áreas interdependientes. El sistema <strong>Ax = b</strong>
+        representa un modelo lineal simplificado: la matriz A describe
+        las relaciones entre áreas, el vector b contiene los valores de
+        entrada y el vector x representa la asignación estimada.
+      </p>
+
+      <div class="info-grid">
+        <article>
+          <h3>01 · Matriz A</h3>
+          <p>
+            Representa las ponderaciones propias y las interdependencias
+            hipotéticas entre las áreas.
+          </p>
+        </article>
+
+        <article>
+          <h3>02 · Vector b</h3>
+          <p>
+            Contiene los valores de entrada utilizados para calcular
+            la distribución financiera.
+          </p>
+        </article>
+
+        <article>
+          <h3>03 · Vector x</h3>
+          <p>
+            Contiene la asignación estimada para cada área, expresada
+            en miles de bolivianos.
+          </p>
+        </article>
+      </div>
+
+      <p class="muted">
+        Los valores son sintéticos y se utilizan para demostrar los
+        métodos numéricos. No representan el presupuesto real de una empresa.
+      </p>
+    </section>
+
+    <section class="section-heading main-heading" id="modelo">
+      <div>
+        <p class="eyebrow">01 / ENTRADAS</p>
+        <h2>Configuración del modelo</h2>
+        <p>Selecciona un escenario y modifica sus parámetros.</p>
+      </div>
+    </section>
+
+    <div class="main-grid">
+
+      <!-- COLUMNA IZQUIERDA: DATOS DE ENTRADA -->
+      <aside class="input-column">
+        <section class="panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">ESCENARIOS</p>
+              <h2>Seleccionar escenario</h2>
+            </div>
+          </div>
+
+          <div id="scenarioGrid" class="scenario-grid"></div>
+        </section>
+
+        <section class="panel workspace">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">MODELO MATEMÁTICO</p>
+              <h2 id="scenarioTitle">Escenario ideal</h2>
+              <p id="scenarioDescription" class="muted"></p>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="tolerance">Tolerancia relativa</label>
+            <input
+              id="tolerance"
+              type="number"
+              min="0.0000000001"
+              max="0.1"
+              step="any"
+              value="0.000001"
+            >
+            <small>Valor inicial: 10⁻⁶</small>
+          </div>
+
+          <div class="field-group">
+            <label for="preconditioner">Precondicionador de GCP</label>
+            <select id="preconditioner">
+              <option value="jacobi">Jacobi diagonal</option>
+              <option value="identity">Identidad</option>
+            </select>
+            <small>La identidad permite comparar sin precondicionamiento.</small>
+          </div>
+
+          <div class="field-group">
+            <label for="maxIterations">Máximo de iteraciones</label>
+            <input
+              id="maxIterations"
+              type="number"
+              min="1"
+              step="1"
+              value="100"
+            >
+          </div>
+
+          <div class="editor-section">
+            <div class="panel-title">
+              <div>
+                <h3>Matriz A</h3>
+                <p class="muted">Coeficientes del sistema lineal.</p>
+              </div>
+              <span class="mini-badge">4 × 4</span>
+            </div>
+
+            <div id="matrixEditor" class="matrix-editor"></div>
+          </div>
+
+          <div class="editor-section">
+            <div class="panel-title">
+              <div>
+                <h3>Vector b</h3>
+                <p class="muted">Valores de entrada.</p>
+              </div>
+            </div>
+
+            <div id="vectorEditor" class="vector-editor"></div>
+            <p class="muted">Valores interpretados como miles de bolivianos.</p>
+          </div>
+
+          <div class="editor-section">
+            <div class="panel-title">
+              <div>
+                <h3>Vector inicial x₀</h3>
+                <p class="muted">Punto inicial de los métodos iterativos.</p>
+              </div>
+            </div>
+
+            <div id="x0Editor" class="vector-editor x0-editor"></div>
+          </div>
+
+          <div class="area-reference">
+            <h3>Referencia de variables</h3>
+            <ul>
+              <li><span class="variable-dot dot-blue"></span>x₁ · Infraestructura tecnológica</li>
+              <li><span class="variable-dot dot-purple"></span>x₂ · Desarrollo de software</li>
+              <li><span class="variable-dot dot-green"></span>x₃ · Seguridad informática</li>
+              <li><span class="variable-dot dot-orange"></span>x₄ · Mantenimiento y soporte</li>
+            </ul>
+          </div>
+
+          <div class="actions">
+            <button id="resetScenario" class="secondary" type="button">
+              Restablecer
+            </button>
+
+            <button id="runCalculation" class="primary" type="button">
+              Calcular resultados →
+            </button>
+          </div>
+
+          <div id="validationMessage" class="message" role="status">
+            Selecciona un escenario y ejecuta los métodos.
+          </div>
+        </section>
+      </aside>
+
+      <!-- COLUMNA DERECHA: RESULTADOS -->
+      <section class="results-column" id="resultados">
+
+        <div class="section-heading results-heading">
+          <div>
+            <p class="eyebrow">02 / RESULTADOS</p>
+            <h2>Resumen numérico</h2>
+            <p>Resultados del escenario seleccionado.</p>
+          </div>
+          <span class="status-pill">Cálculo dinámico</span>
+        </div>
+
+        <section class="metrics">
+          <article class="metric-card">
+            <span>Número de condición κ₂(A)</span>
+            <strong id="conditionA">—</strong>
+            <small>Condicionamiento del sistema original</small>
+          </article>
+
+          <article class="metric-card">
+            <span>Condición precondicionada</span>
+            <strong id="conditionPre">—</strong>
+            <small>Condicionamiento equivalente estimado</small>
+          </article>
+
+          <article class="metric-card">
+            <span>Iteraciones GC</span>
+            <strong id="iterationsGC">—</strong>
+            <small>Gradientes Conjugados</small>
+          </article>
+
+          <article class="metric-card">
+            <span>Iteraciones GCP</span>
+            <strong id="iterationsPCG">—</strong>
+            <small>Gradientes Conjugados Precondicionado</small>
+          </article>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">SOLUCIÓN</p>
+              <h2>Distribución y errores</h2>
+            </div>
+          </div>
+
+          <p class="muted">
+            Gauss se utiliza como referencia. Ea representa el error absoluto;
+            Er, el error relativo; y Ep, el error porcentual de GCP.
+          </p>
+
+          <div class="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Variable</th>
+                  <th>Área</th>
+                  <th>Gauss</th>
+                  <th>GC</th>
+                  <th>GCP</th>
+                  <th>Ea</th>
+                  <th>Er</th>
+                  <th>Ep</th>
+                </tr>
+              </thead>
+              <tbody id="solutionTable">
+                <tr><td colspan="8">Ejecuta el cálculo para ver resultados.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div id="solutionConclusion" class="conclusion-box">
+            <h3>Conclusión de la solución</h3>
+            <p>La conclusión aparecerá después de calcular.</p>
+          </div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">VERIFICACIÓN</p>
+              <h2>Diagnóstico matemático</h2>
+            </div>
+          </div>
+
+          <div id="diagnostics" class="diagnostics">
+            Los diagnósticos aparecerán después del cálculo.
+          </div>
+
+          <div class="proof">
+            <h3>Simetría y criterio de Sylvester</h3>
+            <p id="symmetryProof">Ejecuta el cálculo para ver la comprobación.</p>
+            <div id="minorProof" class="minor-grid"></div>
+          </div>
+
+          <div id="diagnosticsConclusion" class="conclusion-box">
+            <h3>Conclusión del diagnóstico</h3>
+            <p>La interpretación del residuo y del condicionamiento aparecerá aquí.</p>
+          </div>
+        </section>
+
+        <section class="panel results-panel" id="graficos">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">VISUALIZACIÓN 01</p>
+              <h2>Asignación por área</h2>
+            </div>
+          </div>
+
+          <p class="muted">
+            Comparación de la solución de Gauss en los tres escenarios.
+            El eje horizontal representa las áreas y el vertical, miles de Bs.
+          </p>
+
+          <div id="allocationChart" class="cartesian-chart">
+            <p class="muted">El gráfico aparecerá después del cálculo.</p>
+          </div>
+
+          <div id="allocationConclusion" class="conclusion-box">
+            <h3>Conclusión del gráfico</h3>
+            <p>La interpretación financiera aparecerá aquí.</p>
+          </div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">VISUALIZACIÓN 02</p>
+              <h2>Número de condición</h2>
+            </div>
+          </div>
+
+          <p class="muted">
+            Una barra más larga indica un número de condición mayor.
+            La comparación usa una escala logarítmica.
+          </p>
+
+          <div id="conditionChart" class="chart">
+            <p class="muted">El gráfico aparecerá después del cálculo.</p>
+          </div>
+
+          <div id="conditionConclusion" class="conclusion-box">
+            <h3>Conclusión del condicionamiento</h3>
+            <p>La interpretación aparecerá después del cálculo.</p>
+          </div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">DESARROLLO</p>
+              <h2>Procedimiento matemático</h2>
+            </div>
+
+            <button
+              id="toggleProcedure"
+              class="secondary"
+              type="button"
+              aria-expanded="false"
+            >
+              Mostrar procedimiento
+            </button>
+          </div>
+
+          <div id="procedureContent" class="procedure-content" hidden>
+            <p>Ejecuta un cálculo para generar el procedimiento.</p>
+          </div>
+        </section>
+
+        <section class="panel results-panel" id="comparacion">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">COMPARACIÓN GLOBAL</p>
+              <h2>Los tres escenarios</h2>
+            </div>
+          </div>
+
+          <div class="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Indicador</th>
+                  <th>Ideal</th>
+                  <th>Bajo estrés</th>
+                  <th>Mal condicionado</th>
+                </tr>
+              </thead>
+              <tbody id="comparisonTable">
+                <tr><td colspan="4">Ejecuta el cálculo para comparar escenarios.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div id="comparisonConclusion" class="conclusion-box">
+            <h3>Conclusión comparativa</h3>
+            <p>La comparación aparecerá después del cálculo.</p>
+          </div>
+
+          <div id="scenarioConclusions" class="scenario-conclusions"></div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">INTERPRETACIÓN</p>
+              <h2>Conclusiones numéricas y financieras</h2>
+            </div>
+          </div>
+
+          <div id="interpretation" class="interpretation">
+            <p>La interpretación aparecerá después del cálculo.</p>
+          </div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">FUNDAMENTO</p>
+              <h2>Conclusiones generales</h2>
+            </div>
+          </div>
+
+          <div class="interpretation">
+            <p>
+              La solución de Gauss sirve como referencia para evaluar
+              la precisión de GC y GCP. El residuo relativo permite
+              comprobar cuánto satisface la solución aproximada al
+              sistema original.
+            </p>
+
+            <p>
+              El precondicionamiento de Jacobi puede mejorar el
+              condicionamiento numérico cuando existen escalas distintas.
+              Sin embargo, la reducción de iteraciones debe verificarse
+              con los resultados; no está garantizada en todos los casos.
+            </p>
+
+            <p>
+              En el desafío financiero, estos cálculos permiten comparar
+              distribuciones hipotéticas de recursos. Para tomar decisiones
+              empresariales reales se necesitarían datos observados,
+              restricciones presupuestarias y criterios de negocio.
+            </p>
+
+            <h3>Referencias</h3>
+            <ol>
+              <li>
+                Suñagua S., P. (2020). <em>Método de Gradientes Conjugados
+                Precondicionado.</em> Revista Boliviana de Matemática – UMSA.
+              </li>
+              <li>
+                Golub, G. H. y Van Loan, C. F. (2013).
+                <em>Matrix Computations</em> (4.ª ed.).
+                Johns Hopkins University Press.
+              </li>
+              <li>
+                Saad, Y. (2003).
+                <em>Iterative Methods for Sparse Linear Systems</em> (2.ª ed.).
+                SIAM.
+              </li>
+            </ol>
+
+            <p class="muted">
+              Fuente de datos: elaboración propia con matrices y vectores
+              sintéticos para el simulador académico.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel results-panel" id="qa">
+          <div class="panel-title qa-header">
+            <div>
+              <p class="eyebrow">CONTROL DE CALIDAD</p>
+              <h2>Pruebas QA</h2>
+              <p class="muted">
+                Verifica el comportamiento del modelo en los casos de prueba.
+              </p>
+            </div>
+
+            <button id="runQA" class="primary" type="button">
+              Ejecutar pruebas →
+            </button>
+          </div>
+
+          <div id="qaSummary" class="message" role="status">
+            Las pruebas todavía no se han ejecutado.
+          </div>
+
+          <div class="tablewrap">
+            <table class="qa-table">
+              <thead>
+                <tr>
+                  <th>Prueba</th>
+                  <th>Entrada</th>
+                  <th>Esperado</th>
+                  <th>Obtenido</th>
+                  <th>Conclusión</th>
+                </tr>
+              </thead>
+              <tbody id="qaTable">
+                <tr><td colspan="5">Pulsa “Ejecutar pruebas”.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </section>
+    </div>
+
+    <section class="note">
+      <span class="note-icon">i</span>
+      <div>
+        <strong>Nota sobre el modelo</strong>
+        <p>
+          Las cifras son hipotéticas. La solución numérica no reemplaza
+          una evaluación real de costos, necesidades operativas o riesgos.
+        </p>
+      </div>
+    </section>
+
+    <footer>
+      <span>Proyecto académico · Métodos Numéricos · UMSA</span>
+      <span>Modelo hipotético · Ax = b</span>
+    </footer>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
